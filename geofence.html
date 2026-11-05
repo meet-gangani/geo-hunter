@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Location Range Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1a1d23; --muted: #6b7280;
+    --border: #e5e7eb; --accent: #2563eb; --inside: #16a34a; --outside: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1115; --panel: #181b21; --text: #e5e7eb; --muted: #9ca3af; --border: #2a2f38; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+  #map { flex: 1; height: 100vh; }
+  #panel { width: 370px; height: 100vh; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--border); padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+  h1 { font-size: 18px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
+  .card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; }
+  #statusBadge { display: inline-block; padding: 8px 16px; border-radius: 999px; font-weight: 600; font-size: 15px; background: var(--border); color: var(--muted); }
+  #statusBadge.inside { background: var(--inside); color: #fff; }
+  #statusBadge.outside { background: var(--outside); color: #fff; }
+  #bigDistance { font-size: 40px; font-weight: 700; margin: 14px 0 2px; font-variant-numeric: tabular-nums; }
+  #bigDistance.inside { color: var(--inside); } #bigDistance.outside { color: var(--outside); }
+  .sub { font-size: 12px; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; font-size: 13px; text-align: left; }
+  .stats div span { display: block; color: var(--muted); font-size: 11px; }
+  label { font-size: 13px; display: flex; justify-content: space-between; margin-bottom: 6px; }
+  input[type=range] { width: 100%; }
+  button { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer; flex: 1; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.active { background: #f59e0b; color: #000; border-color: #f59e0b; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  #locList { display: flex; flex-direction: column; gap: 6px; }
+  .loc { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+  .loc:hover { border-color: var(--accent); }
+  .loc.here { border-color: var(--inside); background: rgba(22,163,74,.08); }
+  .loc .swatch { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .loc .name { flex: 1; font-size: 13px; font-weight: 600; }
+  .loc .d { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .loc.here .d { color: var(--inside); font-weight: 700; }
+
+  #log { font-size: 12px; max-height: 150px; overflow-y: auto; font-family: ui-monospace, monospace; }
+  #log div { padding: 4px 0; border-bottom: 1px dashed var(--border); }
+  .enter { color: var(--inside); } .exit { color: var(--outside); }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  .pin { width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .user-dot { width: 18px; height: 18px; border: 3px solid #fff; border-radius: 50%; }
+  .user-dot.inside { background: var(--inside); animation: pulseG 1.6s infinite; }
+  .user-dot.outside { background: var(--outside); animation: pulseR 1.6s infinite; }
+  @keyframes pulseG { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.6); } 70% { box-shadow: 0 0 0 16px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }
+  @keyframes pulseR { 0% { box-shadow: 0 0 0 0 rgba(220,38,38,.6); } 70% { box-shadow: 0 0 0 16px rgba(220,38,38,0); } 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); } }
+  .dist-label { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+
+  @media (max-width: 768px) {
+    body { flex-direction: column; }
+    #map { height: 45vh; flex: none; }
+    #panel { width: 100%; height: 55vh; border-left: none; border-top: 1px solid var(--border); padding: 14px 16px; }
+    #bigDistance { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<aside id="panel">
+  <h1>📍 Location Range Tracker</h1>
+
+  <section class="card">
+    <div id="statusBadge">Not tracking</div>
+    <div id="bigDistance">—</div>
+    <div class="sub" id="nearestText">distance to nearest location</div>
+    <div class="stats">
+      <div><span>GPS accuracy</span><b id="accuracy">—</b></div>
+      <div><span>Last update</span><b id="lastUpdate">—</b></div>
+      <div style="grid-column: span 2"><span>User position</span><b id="userPos">—</b></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="btns">
+      <button class="primary" id="btnTrack">Start tracking</button>
+      <button id="btnSimulate" title="Click the map to place a test user">Simulate</button>
+      <button id="btnAll">Show all</button>
+    </div>
+    <p class="hint" style="margin-top:8px" id="simHint" hidden>Simulation on: click anywhere on the map to place the user.</p>
+  </section>
+
+  <section>
+    <h2>My locations</h2>
+    <div id="locList"></div>
+  </section>
+
+  <section>
+    <h2>Range</h2>
+    <label><span>"At location" if within</span><b id="radiusLabel"></b></label>
+    <input type="range" id="radius" min="50" max="100" step="5" />
+  </section>
+
+  <section>
+    <h2>Event log</h2>
+    <div id="log"><div class="hint">No events yet.</div></div>
+  </section>
+
+  <p class="hint">100% free: OpenStreetMap / Esri map tiles + Leaflet + browser GPS. No API key. Location only works on <b>https://</b> or <b>localhost</b>.</p>
+</aside>
+
+<script>
+(() => {
+  // ================= MY LOCATIONS (from your Google Maps links) =================
+  // Add more by copying a line: { id, name, lat, lng, color }
+  const LOCATIONS = [
+    { id: "sb-film",   name: "SB Film Production",  lat: 21.2347351, lng: 72.881446,  color: "#2563eb" },
+    { id: "baby-days", name: "Baby Days Studio",    lat: 21.2344492, lng: 72.8814989, color: "#db2777" },
+    { id: "codelab",   name: "CodeLab Academy",     lat: 21.2381321, lng: 72.888552,  color: "#7c3aed" },
+    { id: "meet",      name: "Meet Gangani",        lat: 21.2440962, lng: 72.8920534, color: "#ea580c" },
+    { id: "sarjan",    name: "Sarjan Avenue",       lat: 21.2284845, lng: 72.8065418, color: "#0891b2" },
+  ];
+  const MIN_RANGE = 50, MAX_RANGE = 100, DEFAULT_RANGE = 100;   // meters
+  const EXIT_BUFFER = 10;                                       // meters, stops flicker at the edge
+  const STORAGE_KEY = "range-tracker-radius";
+
+  // Optional: send events to your backend (Next.js / Node API route)
+  function onEnterLocation(loc, pos, distance) {
+    console.log("ENTER", loc.name, pos, distance);
+    // fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" },
+    //   body: JSON.stringify({ event: "enter", location: loc.id, ...pos, distance, at: Date.now() }) });
+  }
+  function onExitLocation(loc, pos, distance) {
+    console.log("EXIT", loc.name, pos, distance);
+  }
+
+  // ================= STATE =================
+  let range = DEFAULT_RANGE;
+  try {
+    const saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+    if (saved >= MIN_RANGE && saved <= MAX_RANGE) range = saved;
+  } catch {}
+
+  let watchId = null, simulate = false, lastPos = null, firstFix = true;
+  let currentLoc = null;      // location the user is currently "at" (or null)
+  let started = false;        // first evaluation done
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    badge: $("statusBadge"), big: $("bigDistance"), nearestText: $("nearestText"),
+    accuracy: $("accuracy"), userPos: $("userPos"), lastUpdate: $("lastUpdate"),
+    log: $("log"), radius: $("radius"), radiusLabel: $("radiusLabel"), locList: $("locList"),
+    btnTrack: $("btnTrack"), btnSimulate: $("btnSimulate"), btnAll: $("btnAll"), simHint: $("simHint"),
+  };
+
+  // ================= MAP + TILES =================
+  const map = L.map("map");
+  const isHosted = location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  const esriStreets = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Tiles &copy; Esri" });
+  const esriSatellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Tiles &copy; Esri" });
+  const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' });
+  const baseLayers = isHosted
+    ? { "Streets (OpenStreetMap)": osm, "Streets (Esri)": esriStreets, "Satellite (Esri)": esriSatellite }
+    : { "Streets (Esri)": esriStreets, "Satellite (Esri)": esriSatellite };
+  const layerOrder = Object.keys(baseLayers);
+  let activeLayer = 0, tileErrors = 0;
+  baseLayers[layerOrder[0]].addTo(map);
+  L.control.layers(baseLayers, null, { position: "topright" }).addTo(map);
+  layerOrder.forEach((name, i) => {
+    baseLayers[name].on("tileload", () => { tileErrors = 0; });
+    baseLayers[name].on("tileerror", () => {
+      if (i !== activeLayer || ++tileErrors < 6 || activeLayer >= layerOrder.length - 1) return;
+      tileErrors = 0;
+      map.removeLayer(baseLayers[layerOrder[activeLayer]]);
+      activeLayer++;
+      baseLayers[layerOrder[activeLayer]].addTo(map);
+    });
+  });
+  map.on("baselayerchange", (e) => { activeLayer = layerOrder.indexOf(e.name); tileErrors = 0; });
+
+  // ================= LOCATION MARKERS =================
+  const pinIcon = (color) => L.divIcon({ className: "", html: '<div class="pin" style="background:' + color + '"></div>', iconSize: [26, 26], iconAnchor: [13, 26], popupAnchor: [0, -24] });
+  LOCATIONS.forEach((loc) => {
+    loc.marker = L.marker([loc.lat, loc.lng], { icon: pinIcon(loc.color), title: loc.name })
+      .addTo(map).bindPopup("<b>" + loc.name + "</b>");
+    loc.circle = L.circle([loc.lat, loc.lng], { radius: range, color: loc.color, weight: 2, fillOpacity: 0.1 }).addTo(map);
+    loc.distance = null;
+  });
+  const allBounds = L.latLngBounds(LOCATIONS.map((l) => [l.lat, l.lng]));
+  map.fitBounds(allBounds.pad(0.15));
+
+  // ================= USER LAYERS =================
+  const makeIcon = (cls) => L.divIcon({ className: "", html: '<div class="user-dot ' + cls + '"></div>', iconSize: [18, 18], iconAnchor: [9, 9] });
+  const userMarker = L.marker([0, 0], { icon: makeIcon("outside"), zIndexOffset: 1000 });
+  const accuracyCircle = L.circle([0, 0], { radius: 0, weight: 1, fillOpacity: 0.06 });
+  const distLine = L.polyline([], { color: "#dc2626", weight: 2, dashArray: "6 6" });
+  const distLabel = L.marker([0, 0], { interactive: false, icon: L.divIcon({ className: "", html: "" }) });
+
+  // ================= MATH =================
+  function haversine(lat1, lng1, lat2, lng2) {
+    const R = 6371000, toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+  const fmt = (m) => (m >= 1000 ? (m / 1000).toFixed(2) + " km" : Math.round(m) + " m");
+
+  // ================= LOCATION LIST =================
+  function renderList() {
+    const sorted = [...LOCATIONS].sort((a, b) =>
+      a.distance === null ? 0 : a.distance - b.distance);
+    els.locList.innerHTML = "";
+    sorted.forEach((loc) => {
+      const row = document.createElement("div");
+      row.className = "loc" + (currentLoc === loc ? " here" : "");
+      row.innerHTML =
+        '<span class="swatch" style="background:' + loc.color + '"></span>' +
+        '<span class="name"></span>' +
+        '<span class="d">' + (loc.distance === null ? "—" : (currentLoc === loc ? "Here · " : "") + fmt(loc.distance)) + "</span>";
+      row.querySelector(".name").textContent = loc.name;
+      row.onclick = () => { map.setView([loc.lat, loc.lng], 18); loc.marker.openPopup(); };
+      els.locList.appendChild(row);
+    });
+  }
+
+  // ================= CORE =================
+  function handlePosition({ lat, lng, accuracy = 0 }) {
+    lastPos = { lat, lng, accuracy };
+    LOCATIONS.forEach((loc) => { loc.distance = haversine(lat, lng, loc.lat, loc.lng); });
+    const nearest = LOCATIONS.reduce((a, b) => (b.distance < a.distance ? b : a));
+
+    // Which location is the user "at"? Stay at the current one until they pass range + buffer,
+    // otherwise pick the nearest one that is within range.
+    let nowLoc = null;
+    if (currentLoc && currentLoc.distance <= range + EXIT_BUFFER) nowLoc = currentLoc;
+    else if (nearest.distance <= range) nowLoc = nearest;
+
+    const inside = !!nowLoc;
+    const target = nowLoc || nearest;
+    const cls = inside ? "inside" : "outside";
+    const color = inside ? "#16a34a" : "#dc2626";
+
+    // user is always shown
+    userMarker.setLatLng([lat, lng]).setIcon(makeIcon(cls));
+    if (!map.hasLayer(userMarker)) userMarker.addTo(map);
+    userMarker.bindTooltip(inside ? "At " + target.name : fmt(target.distance) + " from " + target.name, { direction: "top" });
+
+    accuracyCircle.setLatLng([lat, lng]).setRadius(accuracy).setStyle({ color });
+    if (accuracy) { if (!map.hasLayer(accuracyCircle)) accuracyCircle.addTo(map); }
+    else if (map.hasLayer(accuracyCircle)) map.removeLayer(accuracyCircle);
+
+    // line + label to the nearest / current location
+    distLine.setLatLngs([[lat, lng], [target.lat, target.lng]]).setStyle({ color });
+    if (!map.hasLayer(distLine)) distLine.addTo(map);
+    distLabel.setLatLng([(lat + target.lat) / 2, (lng + target.lng) / 2])
+      .setIcon(L.divIcon({ className: "", html: '<div class="dist-label">' + fmt(target.distance) + "</div>", iconSize: null }));
+    if (!map.hasLayer(distLabel)) distLabel.addTo(map);
+
+    // panel
+    els.badge.className = cls;
+    els.badge.textContent = inside ? "✅ User is at " + target.name : "📍 User is away";
+    els.big.className = cls;
+    els.big.textContent = fmt(target.distance);
+    els.nearestText.textContent = inside ? "from " + target.name : "to nearest: " + target.name;
+    els.accuracy.textContent = accuracy ? "±" + Math.round(accuracy) + " m" : "simulated";
+    els.userPos.textContent = lat.toFixed(6) + ", " + lng.toFixed(6);
+    els.lastUpdate.textContent = new Date().toLocaleTimeString();
+
+    if (firstFix) {
+      firstFix = false;
+      map.fitBounds(L.latLngBounds([[lat, lng], [target.lat, target.lng]]).pad(0.4), { maxZoom: 18 });
+    }
+
+    // enter / exit events
+    if (nowLoc !== currentLoc) {
+      if (currentLoc) {
+        log("exit", "Left " + currentLoc.name + " (" + fmt(currentLoc.distance) + ")");
+        notify("User left " + currentLoc.name);
+        onExitLocation(currentLoc, lastPos, currentLoc.distance);
+      }
+      if (nowLoc) {
+        log("enter", "Arrived at " + nowLoc.name + " (" + fmt(nowLoc.distance) + ")");
+        notify("User arrived at " + nowLoc.name);
+        onEnterLocation(nowLoc, lastPos, nowLoc.distance);
+      }
+    } else if (!started && !nowLoc) {
+      log("exit", "User is " + fmt(nearest.distance) + " from " + nearest.name);
+    }
+    started = true;
+    currentLoc = nowLoc;
+    renderList();
+  }
+
+  function log(type, msg) {
+    if (els.log.querySelector(".hint")) els.log.innerHTML = "";
+    const row = document.createElement("div");
+    row.className = type;
+    row.textContent = new Date().toLocaleTimeString() + "  " + msg;
+    els.log.prepend(row);
+  }
+
+  function notify(msg) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    try { new Notification("Location Tracker", { body: msg }); } catch {}
+  }
+
+  function clearUser() {
+    [userMarker, accuracyCircle, distLine, distLabel].forEach((l) => map.hasLayer(l) && map.removeLayer(l));
+    currentLoc = null; lastPos = null; firstFix = true; started = false;
+    LOCATIONS.forEach((l) => (l.distance = null));
+    els.badge.className = ""; els.big.className = "";
+    els.big.textContent = "—"; els.nearestText.textContent = "distance to nearest location";
+    els.accuracy.textContent = "—"; els.userPos.textContent = "—"; els.lastUpdate.textContent = "—";
+    renderList();
+  }
+
+  // ================= TRACKING =================
+  function startTracking() {
+    if (!("geolocation" in navigator)) return alert("Geolocation is not supported in this browser.");
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+    els.badge.className = ""; els.badge.textContent = "Waiting for GPS…";
+    watchId = navigator.geolocation.watchPosition(
+      (p) => { if (!simulate) handlePosition({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); },
+      (err) => {
+        const msgs = { 1: "Location permission denied", 2: "Position unavailable", 3: "Location timed out" };
+        els.badge.textContent = msgs[err.code] || err.message;
+        log("exit", "GPS error: " + (msgs[err.code] || err.message));
+      },
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 }
+    );
+    els.btnTrack.textContent = "Stop tracking";
+    els.btnTrack.classList.remove("primary");
+  }
+
+  function stopTracking() {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    clearUser();
+    els.badge.textContent = "Not tracking";
+    els.btnTrack.textContent = "Start tracking";
+    els.btnTrack.classList.add("primary");
+  }
+
+  // ================= UI EVENTS =================
+  function setRange(v) {
+    range = v;
+    LOCATIONS.forEach((l) => l.circle.setRadius(range));
+    els.radius.value = range;
+    els.radiusLabel.textContent = range + " m";
+    try { localStorage.setItem(STORAGE_KEY, String(range)); } catch {}
+    if (lastPos) handlePosition(lastPos);
+  }
+
+  els.btnTrack.onclick = () => (watchId === null ? startTracking() : stopTracking());
+  els.btnSimulate.onclick = () => {
+    simulate = !simulate;
+    els.btnSimulate.classList.toggle("active", simulate);
+    els.simHint.hidden = !simulate;
+    if (!simulate && watchId === null) { clearUser(); els.badge.textContent = "Not tracking"; }
+  };
+  els.btnAll.onclick = () => {
+    const b = L.latLngBounds(LOCATIONS.map((l) => [l.lat, l.lng]));
+    if (lastPos) b.extend([lastPos.lat, lastPos.lng]);
+    map.fitBounds(b.pad(0.15));
+  };
+  els.radius.oninput = () => setRange(parseInt(els.radius.value, 10));
+  map.on("click", (e) => { if (simulate) handlePosition({ lat: e.latlng.lat, lng: e.latlng.lng, accuracy: 0 }); });
+
+  setRange(range);
+  renderList();
+})();
+</script>
+</body>
+</html>
